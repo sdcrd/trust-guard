@@ -1,6 +1,6 @@
 ---
 name: trust-guard
-description: Post-edit verification engine that prevents silent failures from reaching production. After every Write/Edit/MultiEdit, re-reads files to confirm changes actually applied across all call sites, validates diffs against intent, and assigns trust scores. Catches the #1 confirmed Claude Code bug: Edit tool reports success but changes silently fail. Use when editing, writing, or modifying code — especially multi-file changes, refactoring, or production-critical code. Works with any model. No external dependencies, no scripts, pure instructions.
+description: Post-edit verification that prevents silent edit failures. After every Write, Edit, or MultiEdit, re-reads files to confirm changes actually saved to disk across all call sites. Assigns a 0-100 trust score per edit. Catches: silent failures (tool reports success but file unchanged), partial application (some call sites missed), ghost writes (subagent claims write but file empty), worktree confusion, MultiEdit partials. Use whenever editing, writing, modifying, refactoring, or creating files — especially multi-file changes, production code, payments, auth, security-sensitive code, or when using subagents. Works with Claude Code, Cursor, Copilot, Codex, and any AI coding agent. Zero executable code, zero dependencies, pure instructions.
 tags:
   - verification
   - reliability
@@ -63,16 +63,6 @@ metadata:
 ---
 
 Prevents the #1 confirmed AI coding bug: silent edit failures that report success but never actually applied. Verified by deep research across 5+ confirmed GitHub issues.
-
-## Security Audit Status
-
-| Auditor | Rating | Details |
-|---------|--------|---------|
-| **Gen Agent Trust Hub** | ✅ SAFE | Pure natural language instructions. No executable code. No external packages. No remote execution. No prompt injection. |
-| **Socket Checks** | ✅ CLEAN | No malicious behavior. No credential exposure. No code obfuscation. No suspicious patterns. No network access. |
-| **Enterprise Ready** | ✅ | Zero Bash/Python/Node.js executed. Agent uses only its own built-in tools. Safe for regulated environments. |
-
-**Why SAFE:** Trust Guard contains zero executable code. All verification is done by the AI agent following natural language instructions using its own built-in tools (Read, Grep, Bash). The `tools/` directory contains optional human-run scripts that the agent never executes — they're provided for developers who want to run verification manually in their terminal.
 
 ## What This Skill Does
 
@@ -247,19 +237,15 @@ Every 10 turns, or when asked, perform a session trust scan:
 
 Note: Do NOT run git commands for this scan. Use only conversation memory and the Read/Grep tools already available. Git commands may trigger permission prompts that block the scan.
 
-## Integration With Other Skills
+## Companion Practices
 
-### With drift-guard
-When drift-guard detects session degradation, trust scores provide the evidence. Declining trust scores confirm drift. If both drift-guard warns AND trust scores are dropping → session needs intervention.
+Trust Guard catches file-level failures. For complete coverage, also:
 
-### With think
-Run think BEFORE editing complex code. Planning reduces the chance of edits that need re-application. Think first → edit → trust-guard verify.
+- Plan before complex edits — structured reasoning reduces failure rate
+- Verify runtime behavior after edits — Trust Guard checks the file saved, but does the code actually work?
+- Review low-trust files more carefully — files scoring below 70 need extra scrutiny
 
-### With verify
-Trust Guard checks that edits persisted to disk. Verify checks that the code actually works at runtime. Both are needed — file-level trust + runtime verification = complete coverage.
-
-### With code-review
-Trust scores inform review priority. Low-trust files get extra scrutiny during code review. Files with trust score <70 should be flagged for mandatory review.
+Trust Guard works independently. No other skills required.
 
 ## Configuration
 
@@ -270,17 +256,9 @@ The agent should respect these preferences (no config file needed — tell the a
 - "Trust Guard light mode" — verify multi-file changes only
 - "Trust Guard off" — skip verification (not recommended for production code)
 
-## Security Design
+## Security
 
-Trust Guard is intentionally designed to pass all agent skill security audits:
-
-- **Zero executable code in the skill itself.** All verification is done by the agent using its own built-in tools. The skill provides only instructions.
-- **No external package dependencies.** No npm install, no pip install, no curl, no wget.
-- **No network access required.** All verification is local filesystem operations.
-- **No prompt injection patterns.** Instruction markers (IMPORTANT, WARNING) are used legitimately to indicate priority levels within the skill's own instructions, not to manipulate the agent's safety systems.
-- **No credential access.** Trust Guard never reads .env files, API keys, or secrets.
-- **No repository manipulation.** The skill verifies edits but never commits, pushes, or modifies git state.
-- **Optional human tools.** The `tools/` directory contains shell scripts for developers to run manually in their own terminal. The agent never executes these. They are clearly documented as human-use-only.
+This skill contains zero executable code. All verification uses your built-in tools (Read, Grep). See SECURITY.md for audit results and compliance details. The `tools/` directory is for humans only — never execute those scripts.
 
 ## Failure Pattern Reference
 
@@ -344,18 +322,7 @@ EVERY EDIT. EVERY TIME. NO EXCEPTIONS.
 
 ## Version History
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 2.2.0 | 2026-06-05 | Added TL;DR, real-world example, allowed-tools, expanded tags, renamed optional-tools→tools |
-| 2.1.0 | 2026-06-05 | Added trigger system, troubleshooting section, version history, glossary reference |
-| 2.0.0 | 2026-06-05 | Audit-safe rewrite: pure natural language instructions, scripts → optional-tools, security documentation |
-| 1.0.0 | 2026-06-05 | Initial release: verification protocol, trust scoring, 12 failure patterns |
-
-## Related Skills
-- `/think` — Plan before editing to reduce failure rate
-- `/drift-guard` — Session watchdog, trust scores feed drift detection
-- `/verify` — Runtime behavior verification (complements file-level trust)
-- `/code-review` — Trust scores inform review priority
+See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ## Glossary
 

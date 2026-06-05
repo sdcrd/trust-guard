@@ -192,6 +192,4 @@ MIT. Use it however you want.
 
 ---
 
-Built with [Claude Code](https://claude.ai/code) — researched, designed, written, and reviewed by Claude (DeepSeek V4 Pro) in collaboration with [sdcrd](https://github.com/sdcrd).
-
 Star this repo? Star cost zero. Fair trade for catching your silent failures.
