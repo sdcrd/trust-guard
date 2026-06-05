@@ -8,6 +8,16 @@
 
 ---
 
+## What this actually is
+
+Trust Guard is an **agent skill** — a set of instructions the AI follows, not a tool you install. Think of it like a checklist you'd give a junior developer: "After every edit, re-read the file and make sure your change is actually there."
+
+There is no static analysis. No binary. No scanner. No heuristics. The AI agent reads the instructions in `SKILL.md` and executes the verification itself, using its own built-in tools (Read, Grep). You're not installing software. You're teaching the agent to double-check its work.
+
+This is not a replacement for Semgrep, Snyk, or test suites. Those tools catch different problems. Trust Guard catches one specific thing: **the AI agent saying "Done!" when the edit never actually saved to disk.**
+
+---
+
 ## Before / After
 
 ```
