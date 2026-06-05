@@ -22,15 +22,6 @@ Trust Guard is designed to be **audit-safe by construction.** The skill contains
 | Git | ❌ No | Never commits, pushes, or modifies git state |
 | Package managers | ❌ No | No npm, pip, or other package operations |
 
-## Reporting a Vulnerability
-
-If you discover a security issue:
-
-1. **Do not open a public issue.** 
-2. Email: security@emkaru.dev (placeholder — replace with real address before publishing)
-3. Include: description, reproduction steps, potential impact
-4. We'll respond within 48 hours
-
 ## Supported Versions
 
 | Version | Supported |
@@ -59,7 +50,3 @@ Trust Guard has zero supply chain dependencies:
 - No CDN resources
 
 The entire skill is human-readable markdown and optional shell scripts that are never executed by the agent.
-
-## Responsible Disclosure
-
-We follow the [security.txt](https://securitytxt.org/) standard. Found a vulnerability? We want to hear about it. We take all security reports seriously.
