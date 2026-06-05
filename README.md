@@ -54,11 +54,9 @@ Manual install or air-gapped: copy the folder to `~/.agents/skills/trust-guard/`
 
 ## The Problem
 
-Claude Code's Edit tool reports success when it actually failed. This is not hypothetical — it's [GitHub issue #64171](https://github.com/anthropics/claude-code/issues/64171) and 4+ other confirmed reports on the official repo.
+Claude Code's Edit tool reports success when it actually failed. You ask the agent to change a string. It says "Done!" The change never happened. You deploy. Customers see broken UI. You spend an hour debugging what should have been caught instantly.
 
-You ask the agent to change a string in two places. It edits one. Reports "Done!" The second location still has the old code. You deploy. Customers see broken UI. It takes 30-90 minutes to debug what should have been caught in 5 seconds.
-
-The Edit tool has zero built-in verification. Anthropic hasn't fixed it. This is where Trust Guard comes in.
+The Edit tool has zero built-in verification. This is where Trust Guard comes in.
 
 ## How It Works
 
@@ -136,16 +134,6 @@ Claude Code, Codex, Cursor, Copilot, Windsurf, Cline, Gemini CLI, OpenCode, and 
 | `evals/` | 3 test scripts simulating silent failure, partial application, ghost write — all passing |
 | `tools/` | 4 optional CLI scripts for humans (agent never executes these) |
 | `assets/` | Trust Guard image, report template, pre-commit hook |
-
-## Data Sources
-
-Not marketing. Confirmed research:
-
-- 105 agents analyzed 23 sources and verified 107 claims about AI coding failures
-- AMD analysis of 17,871 thinking blocks across 6,852 Claude Code sessions
-- SWE-EVO 2025 benchmark — 60-80% failure rates on multi-step coding tasks
-- Anthropic's April 2026 postmortem confirming three reliability regressions
-- Multiple confirmed GitHub issues with reproduced silent edit failures
 
 ## Contributing
 
