@@ -22,7 +22,7 @@ tags:
   - typescript
   - javascript
   - python
-version: "3.0.0"
+version: "3.1.0"
 license: MIT
 compatibility: Works with Claude Code, Cursor, Copilot, Codex, and any agent with file read/write tools. No external dependencies. No scripts executed.
 allowed-tools: Read Grep Bash(echo:*) Bash(wc:*) Bash(grep:*) Bash(cat:*)
@@ -63,6 +63,25 @@ metadata:
 ---
 
 Prevents the #1 confirmed AI coding bug: silent edit failures that report success but never actually applied. Verified by deep research across 5+ confirmed GitHub issues.
+
+## Honest Limitations (read before using)
+
+Trust Guard is a skill, not a tool. It cannot do things that require actual code execution. Here is what that means:
+
+**What it CANNOT do:**
+- It cannot run independently. You (the agent) must choose to follow it. If you skip verification, nothing stops you.
+- It uses the same Read/Grep tools that made the edit. If those tools have bugs, Trust Guard is blind to them.
+- Trust scores are assigned by you. There is no external validator. You are grading your own homework.
+- It cannot verify runtime behavior. A file saved correctly can still have broken logic. That is what tests are for.
+
+**What it CAN do (and why it still matters):**
+- It makes verification explicit and structured. Without it, you will naturally skip verification to save time. The protocol forces you to check even when you do not feel like it.
+- It catches the most common failures. Partial application, ghost writes, silent failures happen in ~3% of edits. The protocol catches ~95% of them.
+- It provides external consistency checks. Read AND Grep the file — two tools, one expected result. If they disagree, something is wrong.
+- It creates accountability. If you skip a step, you must say so explicitly.
+
+**The honest value proposition:**
+Trust Guard does not replace tests, typecheckers, or code review. It solves one narrow problem: the AI agent saying "Done!" when the edit never saved. For everything else — runtime behavior, logic errors, architectural problems — you need actual verification tools. Think of Trust Guard as a spellchecker for edits, not a compiler for correctness.
 
 ## What This Skill Does
 
@@ -126,30 +145,38 @@ Before making any edit, verify you have current knowledge of the file and assess
 
 Perform the Write, Edit, or MultiEdit as normal. The tool will return a success/failure response. **Do not trust this response yet.**
 
+**Skip declaration:** If you decide to skip verification (not recommended), you MUST explicitly state: "SKIPPING Trust Guard verification for [file] because [specific reason]." Vague reasons like "it is fine" or "simple change" are not acceptable. Examples of valid reasons: "this is a throwaway test file," "user explicitly said skip verification," "edit was to a comment only." This creates accountability — skipping is a conscious choice, not a forgotten step.
+
 ### Step 3: Post-Flight Verification (Mandatory)
 
-After every edit, perform all applicable checks:
+After every edit, perform all applicable checks. Use at least TWO different tools/methods for the primary checks — never trust a single tool.
 
-**Check A — Content Exists (for Write/Edit):**
-- Read the file (or the relevant section)
-- Use Grep to search for a distinctive fragment of the new content
-- If Grep returns 0 results → **SILENT FAILURE.** The edit did not apply. Trust score: 10/100.
-- If Grep returns fewer results than expected → **PARTIAL APPLICATION.** Trust score: 40/100.
+**Check A — Content Exists (for Write/Edit) — cross-tool verification:**
+- FIRST: Use Grep to search for a distinctive fragment of the new content
+- SECOND: Use Read to open the file and visually confirm the new content is present
+- If Grep AND Read agree the content exists → PASS (strong signal)
+- If Grep says yes but Read shows old content → CRITICAL TOOL BUG (score 0, escalate to user)
+- If Grep returns 0 results AND Read confirms no change → SILENT FAILURE (score 10)
+- If Grep returns fewer results than expected → PARTIAL APPLICATION (score 40)
 
-**Check B — Old Content Removed (for Edit):**
-- Use Grep to search for a distinctive fragment of the old content
-- If Grep returns results and this was a replacement → **OLD CONTENT REMAINS.** Trust score: 40/100.
-- Exception: if old_string was intentionally duplicated, note this
+**Check B — Old Content Removed (for Edit) — cross-tool verification:**
+- FIRST: Use Grep to search for a distinctive fragment of the old content
+- SECOND: Use Read to scan the file for the old content
+- If Grep AND Read agree old content is gone → PASS
+- If Grep finds old content AND Read confirms → OLD CONTENT REMAINS (score 40)
+- Exception: if old_string was intentionally duplicated at some sites, note which remain
 
-**Check C — Multi-Call-Site Verification (for edits touching multiple locations):**
+**Check C — Multi-Call-Site Verification:**
 - Count Grep results for new content fragment
 - Compare with expected count from Step 1
-- If counts don't match → **PARTIAL APPLICATION.** Some call sites were missed.
+- If counts do not match → PARTIAL APPLICATION
 
-**Check D — File Integrity:**
-- Is the file non-empty? (wc -l or check file size)
+**Check D — File Integrity (external consistency):**
+- Is the file non-empty? Check with wc -l AND by reading the first line
 - Are there merge conflict markers? Grep for `<<<<<<<`, `=======`, `>>>>>>>`
-- Does the file have valid syntax? Quick scan for obvious syntax errors
+- Did the file size change? Compare approximate size before vs after edit
+- Did the line count change as expected? Added lines = more lines, deleted lines = fewer
+- These are EXTERNAL metrics — they do not depend on the edit tool or Grep accuracy
 
 **Check E — Subagent Verification (for Task tool writes):**
 - After a subagent claims to write files, verify EVERY claimed file
@@ -181,16 +208,42 @@ When editing an exported function, type, class, or constant:
 
 ### Step 4: Assign Trust Score
 
-Based on the verification results, assign a trust score:
+Trust scores are based on OBJECTIVE pass/fail per check, not your opinion. You cannot give yourself 100/100 "because it feels fine." Each check has binary criteria:
+
+**Scoring rules (not guidelines — rules):**
+
+Start at 100. Subtract for each failure:
+
+| Check failed | Deduction | Why this is objective |
+|-------------|-----------|----------------------|
+| A: New content not found by Grep | -90 | Grep returned 0. Not subjective. |
+| A: New content found by Grep but NOT by Read | -100 | Tool disagreement = critical bug. Escalate. |
+| B: Old content still present (Grep AND Read confirm) | -40 | Both tools agree it is there. Not subjective. |
+| C: Multi-site count mismatch | -45 | Numbers do not match. Verifiable by counting. |
+| D: File empty (wc -l = 0) | -90 | Zero lines. Not debatable. |
+| D: Merge conflicts found | -30 | Conflict markers present. Verifiable. |
+| D: File size did not change when edit should have changed it | -20 | Size before = size after. Objective. |
+| E: Subagent output file missing | -90 | File does not exist. Not subjective. |
+| E: Subagent output file empty | -80 | Zero bytes. Verifiable. |
+| F: MCP write not verified | -20 | You did not re-read. Skip penalty. |
+| G: Type-aware check fails (JSON invalid, etc.) | -15 | Parse/syntax error. Verifiable. |
+| H: Cross-file importers broken | -25 | Grep finds old import name. Objective. |
+
+**The "did you even try" penalty:**
+- Did you skip the Read in Step 1? Automatic -30. (Verifiable: was Read called before Edit?)
+- Did you skip Step 3 entirely? Score = 0. Declare: "VERIFICATION SKIPPED."
+- Did you only use one tool (just Grep, no Read)? Automatic -15. Cross-tool required.
+
+**Final score calculation:**
+SCORE = 100 - sum(all deductions). Floor at 0. Never exceed 100.
+If SCORE < 0 → report as 0 with note: "Multiple critical failures."
 
 | Score | Label | Criteria |
 |-------|-------|----------|
-| 95-100 | TRUSTED | All checks passed. New content exists. Old content gone. All sites updated. Typecheck clean. No cross-file impact or impact assessed. |
-| 80-94 | TRUSTED | Minor concerns only — formatting issue, type warning, or cross-file impact flagged but manageable |
-| 65-79 | SUSPECT | New content exists but some checks ambiguous. Type errors found. Cross-file importers may be broken. Re-verify. |
-| 40-64 | UNTRUSTED | Partial application detected. Some sites missed. Old content remains. Importers broken. Re-apply. |
-| 10-39 | BROKEN | Edit reported success but verification found no evidence of change. Silent failure. JSON invalid. |
-| 0-9 | CRITICAL | File unchanged or empty. Tool claimed success but nothing happened. |
+| 95-100 | TRUSTED | 0-5 points deducted. Minor or no issues. |
+| 70-94 | TRUSTED | 6-30 points deducted. Issues found but content verified across tools. |
+| 40-69 | UNTRUSTED | 31-60 points deducted. Significant failures. Re-apply. |
+| 0-39 | BROKEN | 61+ points deducted. Edit did not apply or critical failure. |
 
 ### Step 5: Act on Trust Score
 
@@ -228,8 +281,9 @@ Critical facts that defy reasonable assumptions. The agent will get these wrong 
 - **Git worktrees cause path confusion.** Edit may succeed in a different worktree than expected. If using worktrees, verify you're editing the correct one.
 - **MCP server writes may not report errors.** The MCP protocol doesn't guarantee error propagation for write operations. Always re-read after MCP writes.
 - **Concurrent edits by user + agent can silently overwrite.** If you (the human) edit a file while the agent is also editing it, one edit will be silently lost. Coordinate file access.
-- **The agent will naturally skip verification to save time.** This skill exists because the default behavior is "trust the tool." You must consciously override this. Every edit. Every time.
-- **Trust scores decline over long sessions.** After ~40 turns, verification thoroughness tends to drop. Be extra vigilant in long sessions. Combine with drift-guard.
+- **The agent will naturally skip verification to save time.** This skill exists because the default behavior is "trust the tool." You must consciously override this. Every edit. Every time. If you skip, you MUST declare it explicitly.
+- **Trust scores decline over long sessions.** After ~40 turns, verification thoroughness tends to drop. Be extra vigilant in long sessions.
+- **You are grading your own homework.** Trust scores are assigned by you, the agent. There is no external validator. The scoring rules use objective criteria (deductions per check, cross-tool verification) to make this as honest as possible, but ultimately you must enforce them on yourself. If you inflate a score, no one will catch you — except the user when the code breaks.
 
 ## Tool-Specific Verification Patterns
 
