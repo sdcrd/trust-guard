@@ -152,3 +152,7 @@ Found a new way edits silently fail? `Issue > New Failure Pattern`. Template pro
 ## License
 
 MIT. Use it however you want.
+
+---
+
+Built with [Claude Code](https://claude.ai/code) — researched, designed, written, and reviewed by Claude (DeepSeek V4 Pro) in collaboration with [sdcrd](https://github.com/sdcrd).
