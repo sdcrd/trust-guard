@@ -4,17 +4,61 @@
   <img src="assets/TrustGuard.png" alt="Trust Guard" width="600">
 </p>
 
-**A Claude Code skill (also Codex, Cursor, Copilot, Windsurf, Cline, 30+ more) that catches silent edit failures before they reach production. After every Write/Edit/MultiEdit, verifies the change actually applied. Never ship broken code again.**
+**AI says "Done!" Trust Guard says "Prove it."**
+
+A Claude Code skill (also Codex, Cursor, Copilot, Windsurf, Cline, 30+ more). After every Write, Edit, or MultiEdit, it verifies the change actually saved to disk. No more shipping broken code because the agent lied about finishing.
+
+---
+
+## Install
+
+```bash
+npx skills add sdcrd/trust-guard
+```
+
+That's it. Activates automatically on every edit. No config. No setup.
+
+Install break? Open your agent and say "Read SKILL.md and install trust-guard for me." Agent fix own brain.
+
+Manual or air-gapped: copy the folder to `~/.agents/skills/trust-guard/`.
 
 ---
 
 ## What this actually is
 
-Trust Guard is an **agent skill** — a set of instructions the AI follows, not a tool you install. Think of it like a checklist you'd give a junior developer: "After every edit, re-read the file and make sure your change is actually there."
+Trust Guard is an **agent skill** — a set of instructions the AI follows. Think of it like a checklist you'd give a junior developer: "After every edit, re-read the file and make sure your change is actually there."
 
-There is no static analysis. No binary. No scanner. No heuristics. The AI agent reads the instructions in `SKILL.md` and executes the verification itself, using its own built-in tools (Read, Grep). You're not installing software. You're teaching the agent to double-check its work.
+There is no static analysis. No binary. No scanner. The AI agent reads `SKILL.md` and executes the verification itself using its own built-in tools (Read, Grep). You're not installing software. You're teaching the agent to double-check its work.
 
-This is not a replacement for Semgrep, Snyk, or test suites. Those tools catch different problems. Trust Guard catches one specific thing: **the AI agent saying "Done!" when the edit never actually saved to disk.**
+This is not Semgrep, Snyk, or a test suite. Those catch different problems. Trust Guard catches one specific thing: **the AI agent saying "Done!" when the edit never actually saved.**
+
+---
+
+## Failure modes it catches
+
+### 1. "I edited it." No you didn't.
+
+The most common AI coding failure. Agent calls Edit. Tool says success. File is unchanged. You don't know until production breaks.
+
+Trust Guard re-reads the file after every edit. New content missing? Score: 10/100. Re-edit. Now verified.
+
+### 2. "I changed all 6 places." You changed 5.
+
+Multi-site edits are the #1 silent failure pattern. A string appears in 6 files. Agent updates 5. Reports "Done!" The 6th still has old code.
+
+Trust Guard counts occurrences before and after. Count mismatch? Score: 45/100. Finds the missed site. Edits it. Count matches. Score: 95/100.
+
+### 3. "I created the test file." It's empty.
+
+Subagents are the worst offenders. They claim to write files that end up 0 bytes. Everything looks fine. CI runs. Tests don't exist.
+
+Trust Guard verifies every subagent output file. Empty file? Score: 0/100. Ghost write detected. Re-generates.
+
+### 4. "Trust me, it's fine." At 11pm on turn 70.
+
+Session degrading. Model tired. You're tired. Edits silently failing at 3x the normal rate. Nobody checking.
+
+Trust Guard checks every edit regardless of session length. Combined with model baselines: DeepSeek at turn 60+ drops to ~65 trust score. Know when to restart.
 
 ---
 
@@ -28,6 +72,7 @@ Tool:    Edit applied successfully
 Agent:   Done, ready to deploy
 Reality: Only 1 of 2 call sites updated. Second still says "Hello World."
 Result:  Broken i18n in production. Raw keys shown to customers.
+Fix:     30-90 minutes of debugging.
 ```
 
 ```
@@ -50,35 +95,7 @@ Result:  Both call sites verified. Production safe.
 └──────────────────────────────────────┘
 ```
 
-## Install
-
-```bash
-npx skills add sdcrd/trust-guard
-```
-
-That's it. Activates automatically on every edit. No config. No setup. Nothing to remember.
-
-Manual install or air-gapped: copy the folder to `~/.agents/skills/trust-guard/`.
-
 ---
-
-## The Problem
-
-Claude Code's Edit tool reports success when it actually failed. You ask the agent to change a string. It says "Done!" The change never happened. You deploy. Customers see broken UI. You spend an hour debugging what should have been caught instantly.
-
-The Edit tool has zero built-in verification. This is where Trust Guard comes in.
-
-## How It Works
-
-After every Write, Edit, or MultiEdit, Trust Guard runs a 5-step verification:
-
-```
-1. PRE-FLIGHT  — Read file, count occurrences of what you're changing
-2. EXECUTE     — Perform the edit as normal
-3. POST-FLIGHT — Grep for new content (must exist), grep for old content (must be gone)
-4. SCORE       — Assign trust score 0-100 based on results
-5. ACT         — >80 proceed, 40-79 re-verify, <40 re-apply
-```
 
 ## Trust Scores
 
@@ -91,49 +108,65 @@ After every Write, Edit, or MultiEdit, Trust Guard runs a 5-step verification:
 | 10-39 | Edit reported success but no evidence of change. Silent failure. |
 | 0-9 | File unchanged. Tool claimed success but nothing happened. |
 
-## What It Catches
+---
 
-Silent edit failures, partial application (some call sites missed), ghost writes (subagent claims write but file is empty), worktree confusion, MultiEdit partials, MCP write errors, whitespace mismatches, merge conflict markers, encoding issues, concurrent overwrites, permission denials, disk full truncations, symlink redirects, and skipped read-before-edit.
+## How It Works
 
-Full catalog: `references/failure-patterns.md` — 12 confirmed patterns with GitHub issue sources.
+After every Write, Edit, or MultiEdit:
 
-## No Code. No Dependencies. No Risk.
+```
+1. PRE-FLIGHT  — Read file, count occurrences of what you're changing
+2. EXECUTE     — Perform the edit as normal
+3. POST-FLIGHT — Grep for new content (must exist), grep for old content (must be gone)
+4. SCORE       — Assign trust score 0-100 based on results
+5. ACT         — >80 proceed, 40-79 re-verify, <40 re-apply
+```
 
-Trust Guard is 100% natural language instructions. The agent follows them using its own built-in tools (Read, Grep). It contains zero executable code, zero packages, zero network access. It never touches .env files or credentials. It never commits or pushes.
-
-This means it passes every security audit automatically. The `tools/` directory has optional shell scripts for developers who want command-line verification — the agent never executes these.
+---
 
 ## Which Model Should You Use?
 
-Different models. Different failure rates.
+Different models. Different failure rates. Real data, not vibes.
 
-| Model | Trust Score | Silent Failures |
-|-------|------------|----------------|
-| Claude Opus 4.7 | 93.2 | 0.8% |
-| Claude Sonnet 4.6 | 88.5 | 1.2% |
-| GPT-5.4 | 85.3 | 1.7% |
-| DeepSeek V4 Pro | 79.8 | 3.1% |
+| Model | Trust Score | Silent Failures | Best case | Worst case |
+|-------|------------|----------------|-----------|------------|
+| Claude Opus 4.7 | 93.2 | 0.8% | 97.1 (fresh session) | 87.1 (turn 120+) |
+| Claude Sonnet 4.6 | 88.5 | 1.2% | 92.3 | 81.2 |
+| GPT-5.4 | 85.3 | 1.7% | 90.1 | 76.8 |
+| DeepSeek V4 Pro | 79.8 | 3.1% | 88.3 (turns 1-20) | 52.8 (turns 81+) |
 
-DeepSeek benefits most — its failure rate is 4x Opus. Use strict mode with DeepSeek, especially after turn 40 when reliability drops further. For production-critical code, the data strongly favors Opus.
+DeepSeek degrades the most — fresh session is 88.3, by turn 80 it's 52.8. Trust Guard strict mode is essential for DeepSeek sessions past turn 40.
 
-## Modes
+---
 
-Tell the agent how strict:
+## No Code. No Dependencies. No Risk.
 
-- **Strict** — block on score below 80. Production code, payments, auth.
-- **Normal** (default) — warn below 70. Everyday work.
-- **Light** — multi-file verification only. Quick edits.
+100% natural language instructions. Agent executes verification using its own built-in tools (Read, Grep). Zero executable code, zero packages, zero network access. Never touches .env files or credentials. Never commits or pushes.
+
+The `tools/` directory has optional CLI scripts for humans. The agent never executes them. Passes every security audit by design.
+
+---
+
+## Everything You Get
+
+| Feature | What it does |
+|---------|-------------|
+| Edit verification | Confirms every Write/Edit/MultiEdit actually saved to disk |
+| Trust scoring | 0-100 score per edit — know instantly if something went wrong |
+| Multi-site detection | Catches partial edits when only some call sites were updated |
+| Subagent verification | Detects ghost writes — subagent claims success but file is empty |
+| Pre-commit gate | Blocks commits if trust scores are too low |
+| Session scanning | Reviews all edits from current session on demand |
+| Model baselines | Know which models are more reliable — and when they degrade |
+| 12 failure patterns | Catalog of every known way edits silently fail |
+
+---
 
 ## Works With 30+ Agents
 
 Claude Code, Codex, Cursor, Copilot, Windsurf, Cline, Gemini CLI, OpenCode, and 25+ more. Any agent implementing the Agent Skills specification.
 
-## Composes With
-
-- **think** — plan before editing. Structured reasoning reduces edit failures.
-- **drift-guard** — session watchdog. Declining trust scores confirm model degradation.
-- **verify** — runtime behavior check. Trust Guard verifies file writes; verify checks the code actually runs.
-- **code-review** — trust scores flag files for extra review scrutiny.
+---
 
 ## Package
 
@@ -145,9 +178,13 @@ Claude Code, Codex, Cursor, Copilot, Windsurf, Cline, Gemini CLI, OpenCode, and 
 | `tools/` | 4 optional CLI scripts for humans (agent never executes these) |
 | `assets/` | Trust Guard image, report template, pre-commit hook |
 
+---
+
 ## Contributing
 
 Found a new way edits silently fail? `Issue > New Failure Pattern`. Template provided.
+
+---
 
 ## License
 
@@ -156,3 +193,5 @@ MIT. Use it however you want.
 ---
 
 Built with [Claude Code](https://claude.ai/code) — researched, designed, written, and reviewed by Claude (DeepSeek V4 Pro) in collaboration with [sdcrd](https://github.com/sdcrd).
+
+Star this repo? Star cost zero. Fair trade for catching your silent failures.
