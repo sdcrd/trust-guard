@@ -22,7 +22,7 @@ tags:
   - typescript
   - javascript
   - python
-version: "2.2.0"
+version: "3.0.0"
 license: MIT
 compatibility: Works with Claude Code, Cursor, Copilot, Codex, and any agent with file read/write tools. No external dependencies. No scripts executed.
 allowed-tools: Read Grep Bash(echo:*) Bash(wc:*) Bash(grep:*) Bash(cat:*)
@@ -99,13 +99,28 @@ After **every** Write, Edit, or MultiEdit, follow these steps in order. Never sk
 
 ### Step 1: Pre-Flight Check (Before Editing)
 
-Before making any edit, verify you have current knowledge of the file:
+Before making any edit, verify you have current knowledge of the file and assess the risk:
 
+**Baseline checks:**
 - Read the target file (or confirm it was read within the last 3 turns)
 - If editing: count how many times `old_string` appears using Grep
 - If the count is more than 1, note: "Multi-call-site edit — must verify ALL N sites after edit"
 - Confirm the file path is correct — especially in git worktree setups
 - Record: what change are you making? What should the result look like?
+
+**Edit size awareness — adjust verification depth:**
+- Tiny edit (<5 lines, single file, single site): minimum verification — quick Grep for new content only
+- Medium edit (5-50 lines, 2-3 files): standard verification — all checks A-D
+- Large edit (>50 lines or 4+ files): maximum verification — all checks A-H, plus typecheck
+- If using MultiEdit: always maximum verification regardless of size
+
+**Pre-edit risk assessment — identify high-risk patterns before the edit:**
+- Multi-site string (>1 occurrence found) = HIGH RISK of partial application. Flag: "MULTI-SITE"
+- Long old_string (>200 chars) = MEDIUM RISK of whitespace mismatch. Flag: "LONG_STRING"
+- File contains tabs but old_string uses spaces (or vice versa) = HIGH RISK of silent mismatch. Use `cat -A` to verify whitespace
+- Target is a symlink = MEDIUM RISK of wrong file mutation
+- Edit touches payment, auth, security, or data migration code = CRITICAL. Force strict mode for this edit regardless of session mode
+- Session turn count >40 with DeepSeek = ELEVATED RISK. Double verification recommended
 
 ### Step 2: Execute the Edit
 
@@ -145,20 +160,54 @@ After every edit, perform all applicable checks:
 - After any MCP tool performs a write operation, always re-read the target
 - MCP tools may not propagate filesystem errors
 
+**Check G — Type-Aware Verification (when applicable):**
+Perform file-type-specific verification based on the edited file's extension:
+- `.ts` / `.tsx`: Quick scan — do imports resolve? Any obvious type errors? (no need to run tsc, just scan)
+- `.js` / `.jsx`: Check for missing imports, undefined variable usage
+- `.json`: Is the file still valid JSON? (parse check)
+- `.css` / `.scss`: Check for unclosed braces, invalid property names
+- `.py`: Quick syntax scan — unclosed brackets, indentation consistency
+- `.md` / `.mdx`: Check for broken links, unclosed code blocks
+- Other: basic integrity check (non-empty, no NUL bytes)
+
+**Check H — Cross-File Impact Check (for edits to exported symbols):**
+When editing an exported function, type, class, or constant:
+- Identify WHAT was changed: function signature? Return type? Parameter count? Export name?
+- If the export NAME changed: use Grep to find all files importing the OLD name. List them. These files are now broken.
+- If the export SIGNATURE changed (params added/removed): use Grep to find all call sites. Check if they pass correct arguments.
+- If only the BODY changed (implementation, not interface): no cross-file impact. Proceed.
+- Report: "Cross-file impact: [N] files import this. [M] may be broken by this change."
+- For changes with >0 cross-file impact: after verification succeeds, remind the user to update affected files.
+
 ### Step 4: Assign Trust Score
 
 Based on the verification results, assign a trust score:
 
 | Score | Label | Criteria |
 |-------|-------|----------|
-| 95-100 | TRUSTED | All checks passed. New content exists. Old content gone. All sites updated. |
-| 80-94 | TRUSTED | Minor concerns only — whitespace diff, formatting change, but content verified |
-| 65-79 | SUSPECT | New content exists but some checks ambiguous. Re-verify before proceeding. |
-| 40-64 | UNTRUSTED | Partial application detected. Some sites missed. Old content remains. Re-apply. |
-| 10-39 | BROKEN | Edit reported success but verification found no evidence of change. Silent failure. |
+| 95-100 | TRUSTED | All checks passed. New content exists. Old content gone. All sites updated. Typecheck clean. No cross-file impact or impact assessed. |
+| 80-94 | TRUSTED | Minor concerns only — formatting issue, type warning, or cross-file impact flagged but manageable |
+| 65-79 | SUSPECT | New content exists but some checks ambiguous. Type errors found. Cross-file importers may be broken. Re-verify. |
+| 40-64 | UNTRUSTED | Partial application detected. Some sites missed. Old content remains. Importers broken. Re-apply. |
+| 10-39 | BROKEN | Edit reported success but verification found no evidence of change. Silent failure. JSON invalid. |
 | 0-9 | CRITICAL | File unchanged or empty. Tool claimed success but nothing happened. |
 
 ### Step 5: Act on Trust Score
+
+**Auto-retry with strategy change:** When trust score is below 40, do not retry the same way. Change approach:
+1. Edit failed silently? (0-39) — Abandon Edit. Use Write instead. Write is more reliable.
+2. Partial application? (40-64) — Abandon single Edit. Use separate Edits per call site. Verify each.
+3. Whitespace mismatch? — Re-read with cat -A. Copy old_string directly from file.
+4. MultiEdit partial? — Break into individual Edit calls. Verify each before next.
+5. Ghost write? — Re-run subagent with: "Verify file exists before reporting success."
+6. After any retry: re-run all checks. Only proceed when score reaches 80+.
+7. Three retries failed? Stop. Ask user. Never loop.
+
+**Recovery coaching:** When score <80, tell the user how to prevent this next time:
+- Silent failure: "Read file before editing. Shorter old_string. Prefer Write."
+- Partial application: "Grep all occurrences first. Edit each site individually."
+- Suspect: "Re-verify the specific check. Use more precise matching."
+- DeepSeek + turn >40: "May be session degradation. Consider restart."
 
 | Score Range | Action |
 |-------------|--------|
@@ -230,12 +279,44 @@ When editing something that appears in multiple locations:
 Every 10 turns, or when asked, perform a session trust scan:
 
 1. Review conversation history: identify all files that were edited, written, or modified in this session
-2. For each changed file, perform a quick trust check: was the edit verified at the time? Is the file still in a healthy state?
+2. For each changed file, recall the trust score from when it was edited
 3. Calculate average trust score across all changed files
 4. Report: "Session trust: [avg]/100. [N] files changed, [M] with issues."
-5. If average trust score is declining across scans, the session may be degrading — consider a context refresh or restart
 
-Note: Do NOT run git commands for this scan. Use only conversation memory and the Read/Grep tools already available. Git commands may trigger permission prompts that block the scan.
+**Trust trend alerting — detect degradation patterns:**
+
+After each scan, compare with previous scans. Track the trend:
+- Stable (scores within 5 points): normal. Continue.
+- Declining (dropped 6-15 points since last scan): WARNING. "Trust scores declining — 6+ point drop detected. Consider context refresh."
+- Sharp decline (dropped 16+ points): CRITICAL. "Trust scores in free fall — 16+ point drop. Strongly recommend session checkpoint and restart."
+- Alternating (up/down/up/down): SUSPECT. Inconsistent quality. Individual edits may be failing.
+- First scan vs current: always show the trend direction and magnitude.
+
+**Alert thresholds:**
+- Any single edit below 40: immediate alert regardless of average
+- 3+ edits below 70 in one scan: session quality warning
+- Avg score below 70: recommend intervention
+- DeepSeek + avg score declining + turn >40: "DeepSeek session degradation pattern detected. Reliability drops ~35% after turn 40."
+
+**Verification audit trail — track every edit:**
+
+After each verified edit, mentally record:
+- File path, tool used (Write/Edit/MultiEdit), trust score, turn number
+- When user asks "show me this session's edits" or "/trust-guard report", produce a table:
+
+```
+File                          Tool       Score   Turn
+─────────────────────────────────────────────────────
+src/auth/login.ts             Edit       95      3
+src/api/routes.ts             Write      100     5
+src/components/Header.tsx     MultiEdit  45      8
+src/components/Header.tsx     Edit       92      9  (re-applied)
+src/utils/helpers.ts          Edit       88      12
+─────────────────────────────────────────────────────
+Session trust: 84/100 (5 edits, 1 re-applied, 0 silent failures)
+```
+
+Note: Do NOT run git commands. Use conversation memory. No permission prompts needed.
 
 ## Companion Practices
 
@@ -256,6 +337,32 @@ The agent should respect these preferences (no config file needed — tell the a
 - "Trust Guard light mode" — verify multi-file changes only
 - "Trust Guard off" — skip verification (not recommended for production code)
 
+**Context-aware mode switching — automatically adjust strictness:**
+
+Even without the user saying anything, adjust verification depth based on context:
+
+| Trigger | Auto-action |
+|---------|------------|
+| Editing files in `auth/`, `payment/`, `security/`, or with `secret`, `token`, `credential` in path | Temporarily force strict mode for this edit |
+| Editing config files (`.env`, `config.ts`, `settings.json`) | Force strict mode — broken config breaks everything |
+| Editing markdown, comments, or README files | Light mode is acceptable — low risk |
+| Session turn >50 with DeepSeek | Force strict mode — degradation risk is high |
+| Single-file, single-site, <10 line change | Normal or light mode acceptable |
+| Multi-file, 5+ sites, >100 line change | Force strict mode regardless of user preference |
+| User said "quick fix" or "prototype" | Respect light mode request |
+| User said "production", "deploy", "ship it" | Force strict mode |
+
+**Pre-commit trust gate:**
+
+Before committing code (or when the user is about to commit), offer a trust gate check:
+
+1. Review all files changed in this session (from memory)
+2. Identify any file with trust score below 70
+3. Flag those files: "These files had low-trust edits and should be reviewed before committing: [list]"
+4. If any file had a score below 40: "WARNING: [file] had a silent failure that was re-applied. Review carefully before committing."
+5. Overall gate: "Pre-commit trust gate: [PASSED/FAILED]. [N] files OK, [M] need review."
+6. Do NOT block the commit — just inform. The user decides.
+
 ## Security
 
 This skill contains zero executable code. All verification uses your built-in tools (Read, Grep). See SECURITY.md for audit results and compliance details. The `tools/` directory is for humans only — never execute those scripts.
@@ -273,17 +380,25 @@ See [references/failure-patterns.md](references/failure-patterns.md) for 12 conf
 ## Quick Reference Card
 
 ```
-TRUST GUARD — VERIFICATION CHECKLIST
-────────────────────────────────────
-□ Pre-flight: Read file, count old_string occurrences
+TRUST GUARD — VERIFICATION CHECKLIST v3.0
+─────────────────────────────────────────
+□ Pre-flight: Read file, count occurrences, assess risk
+□ Size check: Adjust depth based on edit size
+□ Risk flag: MULTI_SITE / LONG_STRING / WHITESPACE / CRITICAL
 □ Execute:   Write/Edit/MultiEdit as normal
 □ Post-flight A: Grep for new content — MUST exist
 □ Post-flight B: Grep for old content — MUST be gone
 □ Post-flight C: Multi-site count — MUST match
 □ Post-flight D: Integrity — no conflicts, non-empty
+□ Post-flight E: Subagent output verification
+□ Post-flight F: MCP write verification
+□ Post-flight G: Type-aware check (.ts/.json/.css/.py)
+□ Post-flight H: Cross-file impact check (exports)
 □ Assign score: 0-100 based on results
-□ Act: >80 proceed, 40-79 re-verify, <40 re-apply
-────────────────────────────────────
+□ Act: >80 proceed, <80 apply auto-retry strategy
+□ Recovery: Coach user on prevention
+□ Audit: Record in session trust log
+─────────────────────────────────────────
 EVERY EDIT. EVERY TIME. NO EXCEPTIONS.
 ```
 
