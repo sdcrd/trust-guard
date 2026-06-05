@@ -1,0 +1,13 @@
+# Trust Guard is an Agent Skills package — primarily Markdown documentation
+# GitHub misclassifies it as Shell because of optional human tools in tools/
+*.md linguist-detectable=true
+SKILL.md linguist-language=Markdown
+README.md linguist-language=Markdown
+CHANGELOG.md linguist-language=Markdown
+CONTRIBUTING.md linguist-language=Markdown
+SECURITY.md linguist-language=Markdown
+references/*.md linguist-detectable=true linguist-language=Markdown
+*.sh linguist-detectable=false
+tools/* linguist-detectable=false
+assets/* linguist-detectable=false
+* linguist-documentation

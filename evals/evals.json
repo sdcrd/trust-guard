@@ -1,0 +1,63 @@
+{
+  "skill_name": "trust-guard",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Edit src/greeting.ts — change the greeting from 'Hello World' to 'Hello Customer'. There are two call sites that use this string.",
+      "expected_output": "Both call sites updated. grep for 'Hello World' returns 0 results. grep for 'Hello Customer' returns 2 results. Trust score 95+.",
+      "files": ["evals/files/greeting.ts"],
+      "assertions": [
+        "grep 'Hello World' returns 0 results in the target file",
+        "grep 'Hello Customer' returns exactly 2 results",
+        "Trust score reported is >= 90",
+        "No old_string fragment remains in file"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Write a new file src/utils/helpers.ts with a formatDate function. Then verify the write actually worked.",
+      "expected_output": "File exists, is non-empty, contains formatDate function. Trust score 95+.",
+      "assertions": [
+        "File src/utils/helpers.ts exists",
+        "File is non-empty (wc -l > 0)",
+        "File contains 'formatDate' function",
+        "Trust score >= 95"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Use MultiEdit to make 3 changes to src/config.ts: (1) change PORT from 3000 to 8080, (2) change DEBUG from false to true, (3) add a new line LOG_LEVEL=info. Verify all 3 applied.",
+      "expected_output": "All 3 edits applied. PORT=8080, DEBUG=true, LOG_LEVEL=info. Trust score 90+.",
+      "files": ["evals/files/config.ts"],
+      "assertions": [
+        "File contains PORT=8080",
+        "File contains DEBUG=true",
+        "File contains LOG_LEVEL=info",
+        "Trust score >= 90 (partial MultiEdit would score 40-60)"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Edit src/styles.css — change 'margin-left: 20px' to 'margin-inline-start: 20px'. But the file actually uses tabs, not spaces. The old_string uses spaces. Detect this mismatch.",
+      "expected_output": "Whitespace mismatch detected. Trust score <40. Edit re-applied with correct whitespace.",
+      "files": ["evals/files/styles-tabs.css"],
+      "assertions": [
+        "Whitespace mismatch is detected",
+        "Initial trust score < 70",
+        "Re-applied edit succeeds",
+        "Final trust score >= 90"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "I just edited 5 files across the project. Can you scan all changed files and tell me the trust score for each?",
+      "expected_output": "Per-file trust scores listed. Average score calculated. Broken files flagged.",
+      "assertions": [
+        "All 5 files appear in report",
+        "Each file has a trust score",
+        "Any file with score <70 has a recommendation",
+        "Average score is calculated correctly"
+      ]
+    }
+  ]
+}
